@@ -5,6 +5,7 @@
     flake-utils.url = "github:numtide/flake-utils";
 
     nixpkgs.follows = "haskell-nix/nixpkgs-2205";
+    nixpkgs-unstable.follows = "haskell-nix/nixpkgs-unstable";
 
     haskell-nix = {
       url = "github:input-output-hk/haskell.nix";
@@ -40,6 +41,9 @@
       url = "github:input-output-hk/cardano-haskell-packages?ref=repo";
       flake = false;
     };
+    dapps-world = {
+      url = "github:input-output-hk/dapps-world";
+    };
     plutus-core = {
       url = "github:input-output-hk/plutus";
       flake = false;
@@ -55,9 +59,14 @@
     tullia = {
       url = "github:input-output-hk/tullia";
     };
+
+    nosys.url = "github:divnix/nosys";
+    std.url = "github:divnix/std";
+    data-merge.url = "github:divnix/data-merge";
+    bitte-cells.url = "github:input-output-hk/bitte-cells";
   };
 
-  outputs = { self, flake-utils, tullia, ... }@inputs:
+  outputs = { self, flake-utils, nosys, tullia, ... }@inputs:
     let
       systems = [ "x86_64-linux" "x86_64-darwin" ];
     in
@@ -147,6 +156,41 @@
           packages = packagesProf;
         };
 
+        devShells.ops = inputs.dapps-world.${system}.automation.devshells.ops;
+
+        # 4 Layers of Packaging
+        # https://std.divnix.com/patterns/four-packaging-layers.html
+        operables = import ./deploy/operables.nix {
+          inputs = nosys.lib.deSys system inputs;
+        };
+        oci-images = import ./deploy/oci-images.nix {
+          inputs = nosys.lib.deSys system inputs;
+        };
+        nomadTasks = import ./deploy/nomadTasks.nix {
+          inputs = nosys.lib.deSys system inputs;
+        };
+
+        nomadEnv =
+          let
+            envData = import ./deploy/nomadEnv {
+              inputs = nosys.lib.deSys system inputs;
+            };
+            mkNomadJobs =
+              let
+                pkgs = inputs.nixpkgs.legacyPackages.${system};
+              in
+              builtins.mapAttrs (
+                n: job:
+                  pkgs.linkFarm "job.${n}" [
+                    {
+                      name = "job";
+                      path = pkgs.writeText "${n}.nomad.json" (builtins.toJSON job);
+                    }
+                  ]
+              );
+          in
+          mkNomadJobs envData;
+
         # Export ciJobs for tullia to parse
         ciJobs = self.hydraJobs {
           supportedSystems = [ system ];
@@ -159,7 +203,7 @@
         inherit (self) internal;
         marlowe-cardano = self;
       };
-
+      inherit inputs;
       internal.packagesFun =
         { system
         , checkMaterialization ? false
@@ -181,4 +225,19 @@
             systems);
         };
     };
+
+  nixConfig = {
+    extra-substituters = [
+      # TODO: spongix
+      "https://cache.iog.io"
+      "https://cache.zw3rk.com"
+    ];
+    extra-trusted-public-keys = [
+      "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ="
+      "loony-tools:pr9m4BkM/5/eSTZlkQyRt57Jz7OMBxNSUiMC4FkcNfk="
+    ];
+    # post-build-hook = "./upload-to-cache.sh";
+    allow-import-from-derivation = "true";
+  };
+
 }
