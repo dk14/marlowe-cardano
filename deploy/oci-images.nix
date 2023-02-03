@@ -18,7 +18,7 @@ let
     in
     std.lib.ops.mkStandardOCI {
       name = "iohkbuild/marlowe";
-      tag = "${tagName}-${tagDate}";
+      tag = "${tagName}-demo-20230126";
       operable = operables.${name};
     };
 in
